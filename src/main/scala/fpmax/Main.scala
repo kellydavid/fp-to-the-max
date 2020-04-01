@@ -6,6 +6,7 @@ import scala.io.StdIn.readLine
 object App1 extends App {
 
   def main: Unit = {
+    println("What is your name?")
 
     val name = readLine()
 
@@ -63,6 +64,7 @@ object App2 extends App {
   def parseInt(s: String): Option[Int] = Try(s.toInt).toOption
 
   def main: Unit = {
+    println("What is your name?")
 
     val name = readLine()
 
@@ -100,6 +102,75 @@ object App2 extends App {
       }
 
     }
+  }
+
+  main
+}
+
+object App3 extends App {
+
+  case class IO[A](unsafeRun: () => A) { self =>
+    def map[B](f: A => B): IO[B] = IO(() => f(self.unsafeRun()))
+    def flatMap[B](f: A => IO[B]): IO[B] =
+      IO(() => f(self.unsafeRun())).unsafeRun()
+  }
+
+  object IO {
+    def point[A](a: => A): IO[A] = IO(() => a)
+  }
+
+  def putStrLn(s: String): IO[Unit] = IO(() => println(s))
+  def getStrLn: IO[String] = IO(() => readLine())
+
+  def nextInt(upper: Int): IO[Int] = IO.point(scala.util.Random.nextInt(upper) + 1)
+
+  def gameLoop(name: String): IO[Unit] =
+    for {
+      num <- nextInt(5)
+    }
+
+     var exec = true
+
+    while (exec) {
+      val num = scala.util.Random.nextInt(5) + 1
+
+      println("Dear " + name + ", please guess a number between 1 and 5:")
+
+      // Partial Function:
+      val guess = parseInt(readLine())
+
+      guess match {
+        case None => println("You did not enter a number.")
+        case Some(guess) =>
+          if (guess == num) println("You guessed right, " + name + "!")
+          else
+            println("You guessed wrong, " + name + ". The number was: " + num)
+      }
+
+      var cont = true
+
+      while (cont) {
+        cont = false
+        println("Do you want to continue, " + name + "?")
+
+        readLine().toLowerCase match {
+          case "y" => exec = true
+          case "n" => exec = false
+          case _   => cont = true
+        }
+      }
+
+    }
+
+  def parseInt(s: String): Option[Int] = Try(s.toInt).toOption
+
+  def main: IO[Unit] = {
+    for {
+      _     <- putStrLn("What is your name?")
+      name  <- getStrLn
+      _     <- putStrLn("Hello " + name + ", welcome to the game!")
+      _     <- gameLoop(name)
+    } yield ()
   }
 
   main
