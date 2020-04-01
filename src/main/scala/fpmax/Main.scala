@@ -164,3 +164,120 @@ object App3 extends App {
 
   main.unsafeRun
 }
+
+object App4 extends App {
+
+  // Program Typeclass
+  trait Program[F[_]] {
+    // represents a program that is done and has nothing left to do
+    def finish[A](a: => A): F[A]
+
+    // chain two programs - sequential composition
+    def chain[A, B](fa: F[A], afb: A => F[B]): F[B]
+
+    def map[A, B](fa: F[A], ab: A => B): F[B]
+  }
+
+  object Program {
+    def apply[F[_]](implicit F: Program[F]): Program[F] = F
+  }
+
+  implicit class ProgramSyntax[F[_], A](fa: F[A]) {
+    def map[B](f: A => B)(implicit F: Program[F]): F[B] = F.map(fa, f)
+    def flatMap[B](afb: A => F[B])(implicit F: Program[F]): F[B] = F.chain(fa, afb)
+  }
+  def finish[F[_], A](a: => A)(implicit F: Program[F]): F[A] = F.finish(a)
+
+  trait Console[F[_]] {
+    def putStrLn(line: String): F[Unit]
+    def getStrLn: F[String]
+  }
+
+  object Console {
+    def apply[F[_]](implicit F: Console[F]): Console[F] = F
+  }
+  // helper methods
+  def putStrLn[F[_]: Console](line: String): F[Unit] = Console[F].putStrLn(line)
+  def getStrLn[F[_]: Console]: F[String] = Console[F].getStrLn
+
+  case class IO[A](unsafeRun: () => A) { self =>
+    def map[B](f: A => B): IO[B] = IO(() => f(self.unsafeRun()))
+    def flatMap[B](f: A => IO[B]): IO[B] =
+      IO(() => f(self.unsafeRun())).unsafeRun()
+  }
+
+  trait Random[F[_]] {
+    def nextInt(upper: Int): F[Int]
+  }
+  object Random {
+    def apply[F[_]](implicit F: Random[F]): Random[F] = F
+  }
+
+  def nextInt[F[_]](upper: Int)(implicit F: Random[F]): F[Int] = Random[F].nextInt(upper)
+
+
+  object IO {
+    def point[A](a: => A): IO[A] = IO(() => a)
+
+    implicit val ProgramIO: Program[IO] = new Program[IO] {
+      def finish[A](a: => A): IO[A] = IO.point(a)
+
+      def chain[A, B](fa: IO[A], afb: A => IO[B]): IO[B] = fa.flatMap(afb)
+
+      def map[A, B](fa: IO[A], ab: A => B): IO[B] = fa.map(ab)
+    }
+
+    implicit val ConsoleIO: Console[IO] = new Console[IO] {
+      def putStrLn(s: String): IO[Unit] = IO(() => println(s))
+      def getStrLn: IO[String] = IO(() => readLine())
+    }
+
+    implicit val RandomIO: Random[IO] = new Random[IO] {
+      def nextInt(upper: Int): IO[Int] = IO.point(scala.util.Random.nextInt(upper)).map(_ + 1)
+    }
+  }
+
+
+  def checkContinue[F[_]: Program: Console](name: String): F[Boolean] =
+  for {
+    _       <- putStrLn("Do you want to continue, " + name + "?")
+    input   <- getStrLn.map(_.toLowerCase()) 
+    cont   <- input match {
+                   case "y" => finish(true)
+                   case "n" => finish(false)
+                   case _   => checkContinue(name)
+               }
+  } yield cont
+
+  def gameLoop[F[_]: Program: Console: Random](name: String): F[Unit] =
+    for {
+      num     <- nextInt(5)
+      _       <- putStrLn("Dear " + name + ", please guess a number between 1 and 5:")
+      input   <- getStrLn
+      _       <- parseInt(input).fold(
+                   putStrLn("You did not enter a number.")
+                 ) { guess =>
+                   if (guess == num) putStrLn("You guessed right, " + name + "!")
+                   else putStrLn("You guessed wrong, " + name + ". The number was: " + num)
+                 }
+      cont    <- checkContinue(name)
+      _       <- if (cont) gameLoop(name) else finish(())
+    } yield ()
+
+  def parseInt(s: String): Option[Int] = Try(s.toInt).toOption
+
+  def main[F[_]: Program: Console: Random]: F[Unit] = {
+    for {
+      _ <- putStrLn("What is your name?")
+      name <- getStrLn
+      _ <- putStrLn("Hello " + name + ", welcome to the game!")
+      _ <- gameLoop(name)
+    } yield ()
+  }
+
+
+  def mainIO: IO[Unit] = main[IO]
+
+  mainIO.unsafeRun
+
+}
